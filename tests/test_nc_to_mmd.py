@@ -369,6 +369,29 @@ def test_get_data_access_dict_with_custom_wms(monkeypatch):
 
 
 @pytest.mark.py_mmd_tools
+def test_get_data_access_dict_does_not_skip_relative_humidity(monkeypatch):
+    """Variables containing 'lat' as a substring should not be skipped."""
+    netcdf_file = os.path.abspath('tests/data/reference_nc.nc')
+    opendap_url = (
+        'https://thredds.met.no/thredds/dodsC/arcticdata/'
+        'S2S_drift_TCD/SIDRIFT_S2S_SH/2019/07/31/'
+    ) + netcdf_file
+    with monkeypatch.context() as mp:
+        mp.setattr("py_mmd_tools.nc_to_mmd.Dataset",
+                   lambda *args, **kwargs: patchedDataset(opendap_url, *args, **kwargs))
+        md = Nc_to_mmd(netcdf_file, opendap_url, check_only=True)
+        ncin = Dataset(md.netcdf_file)
+        data = md.get_data_access_dict(
+            ncin,
+            add_wms_data_access=True,
+            wms_link='http://test-link',
+            wms_layer_names=['relative_humidity_2m', 'lat', 'lon'],
+        )
+    assert data[1]['type'] == 'OGC WMS'
+    assert data[1]['wms_layers'] == ['relative_humidity_2m']
+
+
+@pytest.mark.py_mmd_tools
 def test_get_data_access_dict_with_custom_wms_and_layer_names(monkeypatch):
     """WMS link and layer names are set."""
     netcdf_file = os.path.abspath('tests/data/reference_nc.nc')
@@ -1133,7 +1156,7 @@ class TestNC2MMD(unittest.TestCase):
             mmd_yaml['geographic_extent']['polygon'], ncin
         )
         self.assertEqual(value['srsName'], 'EPSG:4326')
-        self.assertEqual(value['pos'][0], '69.0000 3.7900')
+        self.assertEqual(value['pos'][0], '69.00 3.79')
 
     def test_missing_nc_attrs(self):
         """ToDo: Add docstring"""
@@ -1191,6 +1214,28 @@ class TestNC2MMD(unittest.TestCase):
         self.assertIsInstance(value["west"], str)
         self.assertIsInstance(value["north"], str)
         self.assertIsInstance(value["south"], str)
+        self.assertEqual(value["north"], "60.16")
+        self.assertEqual(value["south"], "59.78")
+        self.assertEqual(value["east"], "178.00")
+        self.assertEqual(value["west"], "172.00")
+
+    def test_geographic_extent_rectangle_formats_two_decimals(self):
+        """Rectangle coordinates should use exactly two decimal places."""
+        mmd_yaml = yaml.load(
+            resource_string('py_mmd_tools', 'mmd_elements.yaml'), Loader=yaml.FullLoader
+        )
+        md = Nc_to_mmd(os.path.abspath('tests/data/reference_nc.nc'), check_only=True)
+        ncin = Dataset(md.netcdf_file, "w", diskless=True)
+        ncin.geospatial_lat_max = "60.158733"
+        ncin.geospatial_lat_min = "59.78492"
+        ncin.geospatial_lon_max = "41.76"
+        ncin.geospatial_lon_min = "10.50"
+        value = md.get_geographic_extent_rectangle(
+            mmd_yaml['geographic_extent']['rectangle'], ncin)
+        self.assertEqual(value["north"], "60.16")
+        self.assertEqual(value["south"], "59.78")
+        self.assertEqual(value["east"], "41.76")
+        self.assertEqual(value["west"], "10.50")
 
     def test_geographic_extent_rectangle_is_floatable(self):
         """ Test that the provided geospatial coordinates can be
@@ -1225,7 +1270,10 @@ class TestNC2MMD(unittest.TestCase):
                                             "geospatial_lat_min": -90,
                                             "geospatial_lon_min": -180,
                                             "geospatial_lon_max": 180}})
-        self.assertEqual(md.metadata['geographic_extent']['rectangle']['north'], 90)
+        self.assertEqual(md.metadata['geographic_extent']['rectangle']['north'], '90.00')
+        self.assertEqual(md.metadata['geographic_extent']['rectangle']['south'], '-90.00')
+        self.assertEqual(md.metadata['geographic_extent']['rectangle']['west'], '-180.00')
+        self.assertEqual(md.metadata['geographic_extent']['rectangle']['east'], '-180.00')
 
     def test_collection_is_not_list(self):
         """Test that an error is raised if the collection input
