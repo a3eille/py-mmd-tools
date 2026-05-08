@@ -25,6 +25,7 @@ import shapely.wkt
 
 import numpy as np
 
+from decimal import Decimal
 from filehash import FileHash
 from itertools import zip_longest
 from pkg_resources import resource_string
@@ -110,6 +111,17 @@ def normalize_iso8601_0(s):
     if ndt is None:
         return s
     return ndt
+
+
+def format_coordinate(value):
+    """Format a coordinate value with a limited number of decimals."""
+    return format(Decimal(str(value)).quantize(Decimal("0.01")), ".2f")
+
+
+def normalize_and_format_longitude(value):
+    """Normalize a longitude to the [-180, 180) range with limited number of decimals."""
+    normalized = (Decimal(str(value)) + Decimal("180")) % Decimal("360") - Decimal("180")
+    return format_coordinate(normalized)
 
 
 def get_short_and_long_names(field):
@@ -1225,7 +1237,7 @@ class Nc_to_mmd(object):
             lon = pp.exterior.coords.xy[1]
             pos = []
             for i in range(len(lat)):
-                pos.append("%.4f %.4f" % (lat[i], lon[i]))
+                pos.append(f"{format_coordinate(lat[i])} {format_coordinate(lon[i])}")
             if "geospatial_bounds_crs" in ncin.ncattrs():
                 gb_crs = ncin.geospatial_bounds_crs
             else:
@@ -1255,10 +1267,12 @@ class Nc_to_mmd(object):
                     self.missing_attributes["errors"].append(
                         "%s must be convertible to float type." % acdd_key
                     )
-        # Make sure longitudes are within +/-180 degrees
+        # Make sure values are formatted consistently and longitudes are within +/-180 degrees
         if not fail:
-            data["east"] = str((float(data["east"]) + 180.) % 360. - 180.)
-            data["west"] = str((float(data["west"]) + 180.) % 360. - 180.)
+            data["north"] = format_coordinate(data["north"])
+            data["south"] = format_coordinate(data["south"])
+            data["east"] = normalize_and_format_longitude(data["east"])
+            data["west"] = normalize_and_format_longitude(data["west"])
 
         return data
 
@@ -1783,10 +1797,10 @@ class Nc_to_mmd(object):
         if geographic_extent_rectangle:
             self.metadata["geographic_extent"]["rectangle"] = {
                 "srsName": "EPSG:4326",
-                "north": geographic_extent_rectangle["geospatial_lat_max"],
-                "south": geographic_extent_rectangle["geospatial_lat_min"],
-                "west": geographic_extent_rectangle["geospatial_lon_min"],
-                "east": geographic_extent_rectangle["geospatial_lon_max"],
+                "north": format_coordinate(geographic_extent_rectangle["geospatial_lat_max"]),
+                "south": format_coordinate(geographic_extent_rectangle["geospatial_lat_min"]),
+                "west": normalize_longitude(geographic_extent_rectangle["geospatial_lon_min"]),
+                "east": normalize_longitude(geographic_extent_rectangle["geospatial_lon_max"]),
             }
             mmd_yaml["geographic_extent"].pop("rectangle")
         else:

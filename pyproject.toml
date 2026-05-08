@@ -1,3 +1,7 @@
+[tool.setuptools.packages.find]
+include = ["py_mmd_tools*"]
+exclude = ["tests*", "build*"]
+
 # Minimal PEP 518 pyproject file
 
 [build-system]
